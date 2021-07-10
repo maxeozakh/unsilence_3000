@@ -2,8 +2,15 @@
 
 void streams_divider();
 
+void print_padding() {
+    std::cout << "\n";
+    std::cout << "\n";
+}
+
 int main() {
-    std::cout << "main invoked \n";
+    print_padding();
+    std::cout << "main invoked 🏎\n";
     streams_divider();
-    // std::cin.get();
+    print_padding();
+    std::cin.get();
 }
