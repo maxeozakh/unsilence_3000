@@ -1,16 +1,12 @@
 #include <iostream>
+#include "streams_divider.hpp"
 
-void streams_divider();
-
-void print_padding() {
-    std::cout << "\n";
-    std::cout << "\n";
+bool error_handler(const char* error_message) {
+    std::cout << error_message << "\n";
+    return false;
 }
 
 int main() {
-    print_padding();
     std::cout << "main invoked 🏎\n";
     streams_divider();
-    print_padding();
-    std::cin.get();
 }

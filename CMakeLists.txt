@@ -6,6 +6,7 @@ add_subdirectory(lib/FFmpeg)
 list(APPEND SOURCES
     src/main.cpp
     src/streams_divider.cpp
+    src/streams_divider.hpp
 )
 
 add_executable(unsilence_3000 ${SOURCES})
