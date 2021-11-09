@@ -2,16 +2,94 @@
 #include <string>
 #include "streams_divider.hpp"
 
-bool error_handler(const char *error_message);
+const char *video_file_path = "/Users/mxeo/Magic/unsilence_3000/assets/clip.mp4";
 
-static const char *av_make_error(int errnum)
+bool error_handler(const char *error_message);
+static const char *av_make_error(int errnum);
+bool error_handler(const char *error_message);
+static const char *av_make_error(int errnum);
+bool open_input(AVFormatContext &format_context, const char *filename);
+void find_video_stream(AVFormatContext &format_context, AVCodecParameters &codec_params, AVStream &video_stream, int &video_stream_index);
+void find_codec_for_stream(AVCodecParameters &video_codec_params, AVCodec &video_codec);
+void setup_codec_context(AVCodec &video_codec, AVCodecContext &video_codec_context, AVCodecParameters &video_codec_params);
+bool read_frame(AVFormatContext &format_context, AVCodecContext &video_codec_context, int &video_stream_index);
+
+void streams_divider()
 {
-    static char str[AV_ERROR_MAX_STRING_SIZE];
-    memset(str, 0, sizeof(str));
-    return av_make_error_string(str, AV_ERROR_MAX_STRING_SIZE, errnum);
+    std::cout << "STREAMS_DIVIDER invoked" << '\n';
+    AVFormatContext format_context;
+    AVStream video_stream;
+    AVCodecParameters video_codec_params;
+    AVCodec video_codec;
+    AVCodecContext video_codec_context;
+    int video_stream_index;
+
+    open_input(format_context, video_file_path);
+    find_video_stream(format_context, video_codec_params, video_stream, video_stream_index);
+    find_codec_for_stream(video_codec_params, video_codec);
+    setup_codec_context(video_codec, video_codec_context, video_codec_params);
+
+    if (!read_frame(format_context, video_codec_context, video_stream_index))
+    {
+        printf("Couldn't open video frame\n");
+    }
 }
 
-const char *video_file_path = "/Users/mxeo/Magic/unsilence_3000/assets/clip.mp4";
+bool read_frame(AVFormatContext &format_context, AVCodecContext &video_codec_context, int &video_stream_index)
+{
+    AVFrame *av_frame = av_frame_alloc();
+    if (!av_frame)
+    {
+        error_handler("Couldn't allocate AVFrame");
+    }
+    AVPacket *av_packet = av_packet_alloc();
+    if (!av_packet)
+    {
+        error_handler("Couldn't allocate AVPacket");
+    }
+
+    int response;
+    // its read packet, not a frame
+    int frame_counter;
+    while (av_read_frame(&format_context, av_packet) >= 0)
+    {
+        if (av_packet->stream_index != video_stream_index)
+        {
+            av_packet_unref(av_packet);
+            continue;
+        }
+
+        response = avcodec_send_packet(&video_codec_context, av_packet);
+        if (response < 0)
+        {
+            const char *error = av_make_error(response);
+            error_handler(error);
+            return false;
+        }
+
+        response = avcodec_receive_frame(&video_codec_context, av_frame);
+        if (response == AVERROR(EAGAIN) || response == AVERROR_EOF)
+        {
+            std::cout << "AVERROR: EAGAIN OR EOF, response is: " << response << "\n";
+            continue;
+        }
+        else if (response < 0)
+        {
+            error_handler("Failed to decode packet");
+        }
+        frame_counter++;
+        std::cout << "OUR RESPONSE BOYZ: " << response << "\n";
+    }
+
+    std::cout << "frame count is " << frame_counter / 24 << '\n';
+
+    // // desctructors - cleanup everything
+    // avformat_close_input(format_context);
+    // avformat_free_context(format_context);
+    // avcodec_free_context(video_codec_context);
+
+    return true;
+}
 
 bool open_input(AVFormatContext &format_context, const char *filename)
 {
@@ -22,8 +100,8 @@ bool open_input(AVFormatContext &format_context, const char *filename)
         return false;
     }
 
-    // // open file based on filename and fill and place info
-    // // about them into formatContext
+    // open file based on filename and fill and place info
+    // about them into formatContext
 
     AVFormatContext *ptr = &format_context;
     AVFormatContext **ptr_to_ptr = &ptr;
@@ -95,83 +173,9 @@ void setup_codec_context(AVCodec &video_codec, AVCodecContext &video_codec_conte
     }
 }
 
-bool load_frame(AVFormatContext &format_context, AVCodecContext &video_codec_context, int &video_stream_index);
-
-void streams_divider()
+static const char *av_make_error(int errnum)
 {
-    std::cout << "STREAMS_DIVIDER invoked" << '\n';
-    AVFormatContext format_context;
-    AVStream video_stream;
-    AVCodecParameters video_codec_params;
-    AVCodec video_codec;
-    AVCodecContext video_codec_context;
-    int video_stream_index;
-
-    open_input(format_context, video_file_path);
-    find_video_stream(format_context, video_codec_params, video_stream, video_stream_index);
-
-    find_codec_for_stream(video_codec_params, video_codec);
-    int debugger = 0;
-    setup_codec_context(video_codec, video_codec_context, video_codec_params);
-
-    if (!load_frame(format_context, video_codec_context, video_stream_index))
-    {
-        printf("Couldn't open video frame\n");
-    }
-}
-
-bool load_frame(AVFormatContext &format_context, AVCodecContext &video_codec_context, int &video_stream_index)
-{
-    AVFrame *av_frame = av_frame_alloc();
-    if (!av_frame)
-    {
-        error_handler("Couldn't allocate AVFrame");
-    }
-    AVPacket *av_packet = av_packet_alloc();
-    if (!av_packet)
-    {
-        error_handler("Couldn't allocate AVPacket");
-    }
-
-    int response;
-    // its read packet, not a frame
-    int frame_counter;
-    while (av_read_frame(&format_context, av_packet) >= 0)
-    {
-        if (av_packet->stream_index != video_stream_index)
-        {
-            av_packet_unref(av_packet);
-            continue;
-        }
-
-        response = avcodec_send_packet(&video_codec_context, av_packet);
-        if (response < 0)
-        {
-            const char *error = av_make_error(response);
-            error_handler(error);
-            return false;
-        }
-
-        response = avcodec_receive_frame(&video_codec_context, av_frame);
-        if (response == AVERROR(EAGAIN) || response == AVERROR_EOF)
-        {
-            std::cout << "AVERROR: EAGAIN OR EOF, response is: " << response << "\n";
-            continue;
-        }
-        else if (response < 0)
-        {
-            error_handler("Failed to decode packet");
-        }
-        frame_counter++;
-        std::cout << "OUR RESPONSE BOYZ: " << response << "\n";
-    }
-
-    std::cout << "frame count is " << frame_counter / 24 << '\n';
-
-    // // desctructors - cleanup everything
-    // avformat_close_input(format_context);
-    // avformat_free_context(format_context);
-    // avcodec_free_context(video_codec_context);
-
-    return false;
+    static char str[AV_ERROR_MAX_STRING_SIZE];
+    memset(str, 0, sizeof(str));
+    return av_make_error_string(str, AV_ERROR_MAX_STRING_SIZE, errnum);
 }
