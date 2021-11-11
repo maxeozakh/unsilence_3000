@@ -9,10 +9,17 @@ static const char *av_make_error(int errnum);
 bool error_handler(const char *error_message);
 static const char *av_make_error(int errnum);
 bool open_input(AVFormatContext &format_context, const char *filename);
+void get_codec_parameters(AVFormatContext &format_context,
+                          AVMediaType media_type,
+                          AVCodecParameters &out_codec_params);
+void get_stream_and_stream_index(AVFormatContext &format_context,
+                                 AVMediaType media_type,
+                                 AVStream &out_stream,
+                                 int &out_stream_index);
 void find_video_stream(AVFormatContext &format_context, AVCodecParameters &codec_params, AVStream &video_stream, int &video_stream_index);
 void find_codec_for_stream(AVCodecParameters &video_codec_params, AVCodec &video_codec);
 void setup_codec_context(AVCodec &video_codec, AVCodecContext &video_codec_context, AVCodecParameters &video_codec_params);
-bool read_frame(AVFormatContext &format_context, AVCodecContext &video_codec_context, int &video_stream_index);
+bool read_frame(AVFormatContext &format_context, AVCodecContext &video_codec_context, int &video_stream_index, AVFrame frames[]);
 
 void streams_divider()
 {
@@ -22,20 +29,25 @@ void streams_divider()
     AVCodecParameters video_codec_params;
     AVCodec video_codec;
     AVCodecContext video_codec_context;
+    AVFrame frames[10000];
     int video_stream_index;
 
     open_input(format_context, video_file_path);
-    find_video_stream(format_context, video_codec_params, video_stream, video_stream_index);
+    get_codec_parameters(format_context, AVMEDIA_TYPE_VIDEO, video_codec_params);
+    get_stream_and_stream_index(format_context, AVMEDIA_TYPE_VIDEO, video_stream, video_stream_index);
     find_codec_for_stream(video_codec_params, video_codec);
     setup_codec_context(video_codec, video_codec_context, video_codec_params);
 
-    if (!read_frame(format_context, video_codec_context, video_stream_index))
+    if (!read_frame(format_context, video_codec_context, video_stream_index, frames))
     {
         printf("Couldn't open video frame\n");
     }
 }
 
-bool read_frame(AVFormatContext &format_context, AVCodecContext &video_codec_context, int &video_stream_index)
+bool read_frame(AVFormatContext &format_context,
+                AVCodecContext &video_codec_context,
+                int &video_stream_index,
+                AVFrame frames[])
 {
     AVFrame *av_frame = av_frame_alloc();
     if (!av_frame)
@@ -50,7 +62,7 @@ bool read_frame(AVFormatContext &format_context, AVCodecContext &video_codec_con
 
     int response;
     // its read packet, not a frame
-    int frame_counter;
+    int frames_counter = 0;
     while (av_read_frame(&format_context, av_packet) >= 0)
     {
         if (av_packet->stream_index != video_stream_index)
@@ -77,11 +89,14 @@ bool read_frame(AVFormatContext &format_context, AVCodecContext &video_codec_con
         {
             error_handler("Failed to decode packet");
         }
-        frame_counter++;
-        std::cout << "OUR RESPONSE BOYZ: " << response << "\n";
+        frames[frames_counter] = *av_frame;
+        frames_counter++;
     }
 
-    std::cout << "frame count is " << frame_counter / 24 << '\n';
+    std::cout << "frame count is " << frames_counter << '\n';
+    // for (int i = 0; i < frames_counter; i++) {
+    //     std::cout << frames[i].metadata << '\n';
+    // }
 
     // // desctructors - cleanup everything
     // avformat_close_input(format_context);
@@ -115,6 +130,52 @@ bool open_input(AVFormatContext &format_context, const char *filename)
     return true;
 }
 
+void get_codec_parameters(AVFormatContext &format_context,
+                          AVMediaType media_type,
+                          AVCodecParameters &out_codec_params)
+{
+    AVStream *local_stream;
+    AVCodecParameters *local_codec_params;
+
+    for (int i = 0; i < format_context.nb_streams; i++)
+    {
+        local_stream = format_context.streams[i];
+        local_codec_params = local_stream->codecpar;
+
+        if (local_codec_params->codec_type == media_type)
+        {
+            out_codec_params = *local_codec_params;
+        }
+    }
+}
+
+void get_stream_and_stream_index(AVFormatContext &format_context,
+                                 AVMediaType media_type,
+                                 AVStream &out_stream,
+                                 int &out_stream_index)
+{
+    AVStream *local_stream;
+    AVCodecParameters *local_codec_params;
+
+    for (int i = 0; i < format_context.nb_streams; i++)
+    {
+        local_stream = format_context.streams[i];
+        local_codec_params = local_stream->codecpar;
+
+        if (local_codec_params->codec_type == media_type)
+        {
+            out_stream = *local_stream;
+            out_stream_index = i;
+            break;
+        }
+    }
+
+    if (out_stream_index == -1)
+    {
+        std::cout << "Couldn't find video stream \n";
+    }
+}
+
 void find_video_stream(AVFormatContext &format_context, AVCodecParameters &codec_params, AVStream &video_stream, int &video_stream_index)
 {
     video_stream_index = -1;
@@ -141,7 +202,6 @@ void find_video_stream(AVFormatContext &format_context, AVCodecParameters &codec
         std::cout << "Couldn't find video stream \n";
     }
 }
-
 void find_codec_for_stream(AVCodecParameters &video_codec_params, AVCodec &video_codec)
 {
     AVCodecID av_codec_id = video_codec_params.codec_id;
