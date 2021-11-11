@@ -8,7 +8,7 @@ bool error_handler(const char *error_message);
 static const char *av_make_error(int errnum);
 bool error_handler(const char *error_message);
 static const char *av_make_error(int errnum);
-bool open_input(AVFormatContext &format_context, const char *filename);
+bool open_input(const char *filename, AVFormatContext &out_format_context);
 void get_codec_parameters(AVFormatContext &format_context,
                           AVMediaType media_type,
                           AVCodecParameters &out_codec_params);
@@ -16,27 +16,39 @@ void get_stream_and_stream_index(AVFormatContext &format_context,
                                  AVMediaType media_type,
                                  AVStream &out_stream,
                                  int &out_stream_index);
-void find_video_stream(AVFormatContext &format_context, AVCodecParameters &codec_params, AVStream &video_stream, int &video_stream_index);
-void find_codec_for_stream(AVCodecParameters &video_codec_params, AVCodec &video_codec);
-void setup_codec_context(AVCodec &video_codec, AVCodecContext &video_codec_context, AVCodecParameters &video_codec_params);
-bool read_frame(AVFormatContext &format_context, AVCodecContext &video_codec_context, int &video_stream_index, AVFrame frames[]);
+void get_codec(AVCodecID &codec_id, AVCodec &out_codec);
+void setup_codec_context(AVCodec &codec, AVCodecParameters &codec_params,
+                         AVCodecContext &out_codec_context);
+bool read_frame(AVFormatContext &format_context,
+                AVCodecContext &video_codec_context,
+                int &video_stream_index,
+                AVFrame frames[]);
+void find_video_stream(AVFormatContext &format_context,
+                       AVCodecParameters &codec_params,
+                       AVStream &video_stream,
+                       int &video_stream_index);
 
 void streams_divider()
 {
     std::cout << "STREAMS_DIVIDER invoked" << '\n';
-    AVFormatContext format_context;
-    AVStream video_stream;
-    AVCodecParameters video_codec_params;
-    AVCodec video_codec;
-    AVCodecContext video_codec_context;
     AVFrame frames[10000];
-    int video_stream_index;
 
-    open_input(format_context, video_file_path);
+    AVFormatContext format_context;
+    open_input(video_file_path, format_context);
+
+    AVCodecParameters video_codec_params;
     get_codec_parameters(format_context, AVMEDIA_TYPE_VIDEO, video_codec_params);
+
+    AVStream video_stream;
+    int video_stream_index = -1;
     get_stream_and_stream_index(format_context, AVMEDIA_TYPE_VIDEO, video_stream, video_stream_index);
-    find_codec_for_stream(video_codec_params, video_codec);
-    setup_codec_context(video_codec, video_codec_context, video_codec_params);
+
+    AVCodecID video_codec_id = video_codec_params.codec_id;
+    AVCodec video_codec;
+    get_codec(video_codec_id, video_codec);
+
+    AVCodecContext video_codec_context;
+    setup_codec_context(video_codec, video_codec_params, video_codec_context);
 
     if (!read_frame(format_context, video_codec_context, video_stream_index, frames))
     {
@@ -49,15 +61,16 @@ bool read_frame(AVFormatContext &format_context,
                 int &video_stream_index,
                 AVFrame frames[])
 {
-    AVFrame *av_frame = av_frame_alloc();
-    if (!av_frame)
-    {
-        error_handler("Couldn't allocate AVFrame");
-    }
     AVPacket *av_packet = av_packet_alloc();
     if (!av_packet)
     {
         error_handler("Couldn't allocate AVPacket");
+    }
+
+    AVFrame *av_frame = av_frame_alloc();
+    if (!av_frame)
+    {
+        error_handler("Couldn't allocate AVFrame");
     }
 
     int response;
@@ -106,19 +119,20 @@ bool read_frame(AVFormatContext &format_context,
     return true;
 }
 
-bool open_input(AVFormatContext &format_context, const char *filename)
+bool open_input(const char *filename, AVFormatContext &out_format_context)
 {
-    format_context = *avformat_alloc_context();
-    if (!&format_context)
+    AVFormatContext *format_context_pointer = avformat_alloc_context();
+    if (!format_context_pointer)
     {
         printf("Couldn't created AVFormatContext\n");
         return false;
     }
+    out_format_context = *format_context_pointer;
 
     // open file based on filename and fill and place info
     // about them into formatContext
 
-    AVFormatContext *ptr = &format_context;
+    AVFormatContext *ptr = &out_format_context;
     AVFormatContext **ptr_to_ptr = &ptr;
 
     if (avformat_open_input(ptr_to_ptr, filename, NULL, NULL) != 0)
@@ -176,7 +190,10 @@ void get_stream_and_stream_index(AVFormatContext &format_context,
     }
 }
 
-void find_video_stream(AVFormatContext &format_context, AVCodecParameters &codec_params, AVStream &video_stream, int &video_stream_index)
+void find_video_stream(AVFormatContext &format_context,
+                       AVCodecParameters &codec_params,
+                       AVStream &video_stream,
+                       int &video_stream_index)
 {
     video_stream_index = -1;
 
@@ -202,32 +219,37 @@ void find_video_stream(AVFormatContext &format_context, AVCodecParameters &codec
         std::cout << "Couldn't find video stream \n";
     }
 }
-void find_codec_for_stream(AVCodecParameters &video_codec_params, AVCodec &video_codec)
+void get_codec(AVCodecID &codec_id, AVCodec &out_codec)
 {
-    AVCodecID av_codec_id = video_codec_params.codec_id;
-    video_codec = *avcodec_find_decoder(av_codec_id);
+    AVCodec *codec_ref = avcodec_find_decoder(codec_id);
 
-    if (!&video_codec)
+    if (!codec_ref)
     {
         std::cout << "Couldn't find codec for video stream" << std::endl;
+        return;
     }
+
+    out_codec = *codec_ref;
 }
 
-void setup_codec_context(AVCodec &video_codec, AVCodecContext &video_codec_context, AVCodecParameters &video_codec_params)
+void setup_codec_context(AVCodec &codec,
+                         AVCodecParameters &codec_params,
+                         AVCodecContext &out_codec_context)
 {
-    video_codec_context = *avcodec_alloc_context3(&video_codec);
-    if (!&video_codec_context)
+    AVCodecContext *codec_context_pointer = avcodec_alloc_context3(&codec);
+    if (!codec_context_pointer)
     {
         error_handler("Couldn't create AVCodecContext");
+        return;
     }
+    out_codec_context = *codec_context_pointer;
 
-    // fill codec context with sort of init state
-    if (avcodec_parameters_to_context(&video_codec_context, &video_codec_params) < 0)
+    if (avcodec_parameters_to_context(&out_codec_context, &codec_params) < 0)
     {
         error_handler("Couldn't initialize AVCodecContext");
     }
 
-    if (avcodec_open2(&video_codec_context, &video_codec, NULL) < 0)
+    if (avcodec_open2(&out_codec_context, &codec, NULL) < 0)
     {
         error_handler("Couldn't open codec");
     }
